@@ -21,6 +21,7 @@ from app.services.cloudwatch_client import (
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _mock_boto3(return_value: dict):
     """Return a mock boto3 client whose method calls return *return_value*."""
     client = MagicMock()
@@ -33,6 +34,7 @@ def _mock_boto3(return_value: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 # get_metric_statistics
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestGetMetricStatistics:
     def test_returns_data_on_success(self):
@@ -107,6 +109,7 @@ class TestGetMetricStatistics:
 # filter_log_events
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestFilterLogEvents:
     def test_returns_events_on_success(self):
         mock_response = {"events": [{"message": "ERROR: timeout", "timestamp": 1700000000000}]}
@@ -166,6 +169,7 @@ class TestFilterLogEvents:
 # ─────────────────────────────────────────────────────────────────────────────
 # get_log_events
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestGetLogEvents:
     def test_returns_events_on_success(self):
