@@ -191,7 +191,7 @@ class TestDetectHardware:
             is_apple_silicon=False,
             has_nvidia_gpu=False,
         )
-        with pytest.raises(Exception):  # frozen dataclass raises on assignment
+        with pytest.raises(AttributeError):  # frozen dataclass raises AttributeError on assignment
             hw.total_ram_gb = 32.0  # type: ignore[misc]
 
 
