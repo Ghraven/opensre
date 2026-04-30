@@ -100,7 +100,6 @@ async def _repl_main(initial_input: str | None = None, config: ReplConfig | None
     render_banner(console)
     session = ReplSession()
     prompt: PromptSession[str] = PromptSession()
-    _interrupt_count: list[int] = [0]
 
     # Allow a single pre-seeded input for test harnesses
     if initial_input:
@@ -119,6 +118,8 @@ async def _repl_main(initial_input: str | None = None, config: ReplConfig | None
             else:
                 answer_follow_up(stripped, session, console)
                 session.record("follow_up", stripped)
+
+    _interrupt_count: list[int] = [0]
 
     while True:
         should_continue = await _run_one_turn(
