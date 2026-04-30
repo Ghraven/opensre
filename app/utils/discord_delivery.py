@@ -3,11 +3,44 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
-import httpx
+from app.utils.delivery_transport import post_json
+from app.utils.truncation import truncate
 
 logger = logging.getLogger(__name__)
+
+
+def _discord_auth_headers(bot_token: str) -> dict[str, str]:
+    # ``Content-Type: application/json`` is set automatically by httpx when
+    # the request uses the ``json=`` kwarg, so we only need to add auth.
+    return {"Authorization": f"Bot {bot_token}"}
+
+
+def _redact_token(text: str, bot_token: str) -> str:
+    """Replace ``bot_token`` with ``<redacted>`` to prevent accidental log/error leakage."""
+    if bot_token and bot_token in text:
+        return text.replace(bot_token, "<redacted>")
+    return text
+
+
+def _extract_error(data: Mapping[str, Any], status_code: int, text: str) -> str:
+    """Return a human-readable error string from a Discord API response.
+
+    Tries ``data["message"]`` / ``data["error"]`` first, then falls back to
+    the raw response body or the HTTP status code so non-JSON failure bodies
+    (HTML, plain text) never cause a crash.
+    """
+    msg = data.get("message")
+    if msg:
+        return str(msg)
+    err = data.get("error")
+    if err:
+        return str(err)
+    if text:
+        return text[:500]
+    return f"HTTP {status_code}"
 
 
 def post_discord_message(
@@ -21,29 +54,23 @@ def post_discord_message(
     Returns True on success, False on expected failures.
     """
     logger.debug("[discord] post message params channel_id: %s", channel_id)
-    try:
-        resp = httpx.post(
-            url=f"https://discord.com/api/v10/channels/{channel_id}/messages",
-            json={"content": content, "embeds": embeds},
-            headers={
-                "Authorization": f"Bot {bot_token}",
-                "Content-Type": "application/json; charset=utf-8",
-            },
-            timeout=15.0,
-        )
-        data = resp.json()
-        error_message = ""
-        if resp.status_code not in (200, 201):
-            logger.warning("[discord] post message failed: %s", resp.status_code)
-            logger.warning("[discord] api response %s", data)
-            error_message = data.get("message", data.get("error", "unknown"))
-            logger.warning("[discord] post message failed: %s", error_message)
-            return False, error_message, ""
-        message_id: str = str(data.get("id") or "")
-        return True, error_message, message_id
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[discord] post message exception: %s", exc)
-        return False, str(exc), ""
+    response = post_json(
+        url=f"https://discord.com/api/v10/channels/{channel_id}/messages",
+        payload={"content": content, "embeds": embeds},
+        headers=_discord_auth_headers(bot_token),
+    )
+    if not response.ok:
+        safe_error = _redact_token(response.error, bot_token)
+        logger.warning("[discord] post message exception: %s", safe_error)
+        return False, safe_error, ""
+    if response.status_code not in (200, 201):
+        logger.warning("[discord] post message failed: %s", response.status_code)
+        error_message = _extract_error(response.data, response.status_code, response.text)
+        safe_error = _redact_token(error_message, bot_token)
+        logger.warning("[discord] post message failed: %s", safe_error)
+        return False, safe_error, ""
+    message_id = str(response.data.get("id") or "")
+    return True, "", message_id
 
 
 def create_discord_thread(
@@ -56,37 +83,26 @@ def create_discord_thread(
 
     Returns True on success, False on expected failures.
     """
-    try:
-        resp = httpx.post(
-            url=(
-                f"https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}/threads"
-            ),
-            json={"name": name, "auto_archive_duration": 1440},
-            headers={
-                "Authorization": f"Bot {bot_token}",
-                "Content-Type": "application/json; charset=utf-8",
-            },
-            timeout=15.0,
-        )
-        data = resp.json()
-        error_message = ""
-        if resp.status_code not in (200, 201):
-            error_message = data.get("message", data.get("error", "unknown"))
-            logger.warning("[discord] create thread failed: %s", error_message)
-            return False, error_message, ""
-        thread_id: str = str(data.get("id") or "")
-        return True, error_message, thread_id
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[discord] create thread exception: %s", exc)
-        return False, str(exc), ""
+    response = post_json(
+        url=f"https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}/threads",
+        payload={"name": name, "auto_archive_duration": 1440},
+        headers=_discord_auth_headers(bot_token),
+    )
+    if not response.ok:
+        safe_error = _redact_token(response.error, bot_token)
+        logger.warning("[discord] create thread exception: %s", safe_error)
+        return False, safe_error, ""
+    if response.status_code not in (200, 201):
+        error_message = _extract_error(response.data, response.status_code, response.text)
+        safe_error = _redact_token(error_message, bot_token)
+        logger.warning("[discord] create thread failed: %s", safe_error)
+        return False, safe_error, ""
+    thread_id = str(response.data.get("id") or "")
+    return True, "", thread_id
 
 
 _EMBED_TITLE_LIMIT = 256
 _EMBED_DESCRIPTION_LIMIT = 4096
-
-
-def _truncate(text: str, limit: int) -> str:
-    return (text[: limit - 1] + "…") if len(text) > limit else text
 
 
 def send_discord_report(report: str, discord_ctx: dict[str, Any]) -> tuple[bool, str]:
@@ -94,9 +110,9 @@ def send_discord_report(report: str, discord_ctx: dict[str, Any]) -> tuple[bool,
     thread_id: str = str(discord_ctx.get("thread_id") or "")
     bot_token: str = str(discord_ctx.get("bot_token") or "")
     embed = {
-        "title": _truncate("Investigation Complete", _EMBED_TITLE_LIMIT),
+        "title": truncate("Investigation Complete", _EMBED_TITLE_LIMIT, suffix="…"),
         "color": 15158332,
-        "description": _truncate(report, _EMBED_DESCRIPTION_LIMIT),
+        "description": truncate(report, _EMBED_DESCRIPTION_LIMIT, suffix="…"),
         "footer": {"text": "OpenSRE Investigation"},
     }
     target = thread_id if thread_id else channel_id

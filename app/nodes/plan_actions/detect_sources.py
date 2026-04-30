@@ -14,16 +14,11 @@ from app.integrations.azure_sql import DEFAULT_AZURE_SQL_PORT
 from app.integrations.opensre.csv_grafana_backend import OpenSRECsvGrafanaBackend
 from app.integrations.opensre.inject import inject_opensre_into_resolved_integrations
 from app.services.coralogix import build_coralogix_logs_query
+from app.services.splunk import build_splunk_spl_query
 from app.tools.GrafanaLogsTool import _map_pipeline_to_service_name
+from app.utils.coercion import safe_int
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _alert_time_range_minutes(raw_alert: dict[str, Any]) -> int:
@@ -435,6 +430,25 @@ def detect_sources(
         or pipeline_name
     ).strip()
 
+    airflow_int = (resolved_integrations or {}).get("airflow")
+    if airflow_int:
+        airflow_config = airflow_int.get("config", airflow_int)
+        if isinstance(airflow_config, dict):
+            dag_id = str(
+                annotations.get("dag_id")
+                or common_labels.get("dag_id")
+                or raw_alert.get("dag_id", "")
+                or context.get("dag_id", "")
+                or pipeline_name
+            ).strip()
+
+            sources["airflow"] = {
+                **airflow_config,
+                "dag_id": dag_id,
+                "pipeline_name": pipeline_name,
+                "connection_verified": True,
+            }
+
     # Only include Grafana when alert came from Grafana, or when source is truly unknown,
     # or when a pre-injected backend is present (e.g. FixtureGrafanaBackend for synthetic tests).
     grafana_int = None
@@ -714,6 +728,12 @@ def detect_sources(
                 "role_arn": _eks_int.get("role_arn", ""),
                 "external_id": _eks_int.get("external_id", ""),
                 "cluster_names": _eks_int.get("cluster_names", []),
+                # Forward stored AWS integration credentials so build_k8s_clients
+                # can use them explicitly instead of silently missing them when
+                # the AWS integration is configured with IAM user credentials
+                # (access_key_id + secret_access_key, no role_arn). Follow-up
+                # to #724 (stored-integration credential forwarding).
+                "credentials": _eks_int.get("credentials") or None,
             }
             if _has_injected_eks_backend:
                 # Backend-only path: only fixture-aware EKS tools should activate,
@@ -772,7 +792,7 @@ def detect_sources(
                     bitbucket_int.get("base_url", "https://api.bitbucket.org/2.0")
                 ).strip()
                 or "https://api.bitbucket.org/2.0",
-                "max_results": _safe_int(bitbucket_int.get("max_results", 25), 25),
+                "max_results": safe_int(bitbucket_int.get("max_results", 25), 25),
                 "integration_id": str(bitbucket_int.get("integration_id", "")).strip(),
                 "connection_verified": True,
             }
@@ -796,7 +816,7 @@ def detect_sources(
                     or raw_alert.get("error_message", "")
                     or raw_alert.get("alert_name", "")
                 ).strip(),
-                "max_results": _safe_int(snowflake_int.get("max_results", 50), 50),
+                "max_results": safe_int(snowflake_int.get("max_results", 50), 50),
                 "integration_id": str(snowflake_int.get("integration_id", "")).strip(),
                 "connection_verified": True,
             }
@@ -818,7 +838,7 @@ def detect_sources(
                     or raw_alert.get("alert_name", "")
                 ).strip(),
                 "time_range_minutes": alert_time_range_minutes,
-                "max_results": _safe_int(azure_int.get("max_results", 100), 100),
+                "max_results": safe_int(azure_int.get("max_results", 100), 100),
                 "integration_id": str(azure_int.get("integration_id", "")).strip(),
                 "connection_verified": True,
             }
@@ -845,7 +865,7 @@ def detect_sources(
                 "username": username,
                 "password": password,
                 "time_range_minutes": alert_time_range_minutes,
-                "max_results": _safe_int(openobserve_int.get("max_results", 100), 100),
+                "max_results": safe_int(openobserve_int.get("max_results", 100), 100),
                 "integration_id": str(openobserve_int.get("integration_id", "")).strip(),
                 "connection_verified": True,
             }
@@ -871,7 +891,7 @@ def detect_sources(
                 or "*",
                 "default_query": default_query or "*",
                 "time_range_minutes": alert_time_range_minutes,
-                "max_results": _safe_int(opensearch_int.get("max_results", 100), 100),
+                "max_results": safe_int(opensearch_int.get("max_results", 100), 100),
                 "integration_id": str(opensearch_int.get("integration_id", "")).strip(),
                 "connection_verified": True,
             }
@@ -1216,6 +1236,67 @@ def detect_sources(
             "connection_verified": True,
         }
 
+    argocd_int = (resolved_integrations or {}).get("argocd")
+    if argocd_int and str(argocd_int.get("base_url", "")).strip():
+        application_name = str(
+            annotations.get("argocd_application")
+            or annotations.get("argocd_app")
+            or annotations.get("application_name")
+            or raw_alert.get("argocd_application", "")
+            or raw_alert.get("argocd_app", "")
+        ).strip()
+        revision = str(
+            annotations.get("argocd_revision")
+            or annotations.get("revision")
+            or raw_alert.get("argocd_revision", "")
+        ).strip()
+        project = str(
+            annotations.get("argocd_project")
+            or raw_alert.get("argocd_project", "")
+            or argocd_int.get("project", "")
+        ).strip()
+        app_namespace = str(
+            annotations.get("argocd_app_namespace")
+            or raw_alert.get("argocd_app_namespace", "")
+            or argocd_int.get("app_namespace", "")
+        ).strip()
+        argocd_hint_text = " ".join(
+            str(value)
+            for value in (
+                raw_alert.get("alert_name", ""),
+                raw_alert.get("error_message", ""),
+                annotations.get("summary", ""),
+                annotations.get("description", ""),
+                annotations.get("message", ""),
+            )
+            if value
+        ).lower()
+        has_gitops_hint = any(
+            marker in argocd_hint_text
+            for marker in (
+                "argocd",
+                "argo cd",
+                "argo-cd",
+                "gitops",
+                "outofsync",
+                "outofsynced",
+            )
+        )
+        if application_name or revision or has_gitops_hint:
+            sources["argocd"] = {
+                "base_url": str(argocd_int.get("base_url", "")).strip().rstrip("/"),
+                "bearer_token": str(argocd_int.get("bearer_token", "")).strip(),
+                "username": str(argocd_int.get("username", "")).strip(),
+                "password": str(argocd_int.get("password", "")).strip(),
+                "application_name": application_name,
+                "revision": revision,
+                "project": project,
+                "app_namespace": app_namespace,
+                "verify_ssl": argocd_int.get("verify_ssl", True),
+                "integration_id": str(argocd_int.get("integration_id", "")).strip(),
+                "connection_verified": True,
+            }
+
     alertmanager_int = (resolved_integrations or {}).get("alertmanager")
     if alertmanager_int and str(alertmanager_int.get("base_url", "")).strip():
         # Carry label filters from the alert when present so tools can pre-scope the query
@@ -1311,5 +1392,50 @@ def detect_sources(
             "database": azure_sql_database,
             "connection_verified": True,
         }
+
+    splunk_int = (resolved_integrations or {}).get("splunk")
+    if splunk_int:
+        splunk_base_url = str(splunk_int.get("base_url", "")).strip()
+        splunk_token = str(splunk_int.get("token", "")).strip()
+        splunk_index = str(splunk_int.get("index", "main")).strip() or "main"
+        splunk_verify_ssl = splunk_int.get("verify_ssl", True)
+        splunk_ca_bundle = str(splunk_int.get("ca_bundle", "")).strip()
+
+        if splunk_base_url and splunk_token:
+            # 1. Check if operator supplied a verbatim SPL in alert annotations
+            raw_query = str(
+                annotations.get("splunk_query", "")
+                or annotations.get("query", "")
+                or annotations.get("log_query", "")
+                or raw_alert.get("splunk_query", "")
+                or raw_alert.get("log_query", "")
+            ).strip()
+
+            # 2. If no raw SPL, build a keyword search from alert signals
+            error_message = str(
+                raw_alert.get("error_message", "")
+                or annotations.get("summary", "")
+                or raw_alert.get("alert_name", "")
+            ).strip()
+
+            default_query = build_splunk_spl_query(
+                raw_query=raw_query,
+                index=splunk_index,
+                error_message=error_message,
+                alert_name=str(raw_alert.get("alert_name", "")).strip(),
+                trace_id=trace_id,
+                limit=50,
+            )
+
+            sources["splunk"] = {
+                "base_url": splunk_base_url,
+                "token": splunk_token,
+                "index": splunk_index,
+                "verify_ssl": splunk_verify_ssl,
+                "ca_bundle": splunk_ca_bundle,
+                "default_query": default_query,
+                "time_range_minutes": alert_time_range_minutes,
+                "connection_verified": True,
+            }
 
     return sources

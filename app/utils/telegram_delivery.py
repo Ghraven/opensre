@@ -7,7 +7,8 @@ import logging
 import re
 from typing import Any
 
-import httpx
+from app.utils.delivery_transport import post_json
+from app.utils.truncation import truncate
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,6 @@ def _install_httpx_token_filter() -> None:
 _install_httpx_token_filter()
 
 
-def _truncate(text: str, limit: int) -> str:
-    return (text[: limit - 1] + "…") if len(text) > limit else text
-
-
 def _redact_token(text: str, bot_token: str) -> str:
     """Replace bot token with <redacted> to prevent accidental log/error leakage."""
     if bot_token and bot_token in text:
@@ -73,29 +70,27 @@ def post_telegram_message(
     if reply_to_message_id and reply_to_message_id != "0":
         with contextlib.suppress(ValueError, TypeError):
             payload["reply_to_message_id"] = int(reply_to_message_id)
-    try:
-        resp = httpx.post(
-            url=f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json=payload,
-            timeout=15.0,
-        )
-        if resp.status_code != 200:
-            logger.warning("[telegram] post message failed: %s", resp.status_code)
-            try:
-                data = resp.json()
-                error_message = str(data.get("description", data.get("error", "unknown")))
-            except Exception:  # noqa: BLE001
-                error_message = resp.text or f"HTTP {resp.status_code}"
-            logger.warning("[telegram] post message failed: %s", error_message)
-            return False, error_message, ""
-        data = resp.json()
-        result = data.get("result", {})
-        message_id: str = str(result.get("message_id") or "")
-        return True, "", message_id
-    except Exception as exc:  # noqa: BLE001
-        error = _redact_token(str(exc), bot_token)
+    response = post_json(
+        url=f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        payload=payload,
+    )
+    if not response.ok:
+        error = _redact_token(response.error, bot_token)
         logger.warning("[telegram] post message exception: %s", error)
         return False, error, ""
+    if response.status_code != 200:
+        logger.warning("[telegram] post message failed: %s", response.status_code)
+        if response.data:
+            error_message = str(
+                response.data.get("description", response.data.get("error", "unknown"))
+            )
+        else:
+            error_message = response.text or f"HTTP {response.status_code}"
+        logger.warning("[telegram] post message failed: %s", error_message)
+        return False, error_message, ""
+    result = response.data.get("result", {})
+    message_id = str(result.get("message_id") or "") if isinstance(result, dict) else ""
+    return True, "", message_id
 
 
 def send_telegram_report(report: str, telegram_ctx: dict[str, Any]) -> tuple[bool, str]:
@@ -105,7 +100,7 @@ def send_telegram_report(report: str, telegram_ctx: dict[str, Any]) -> tuple[boo
     if not bot_token or not chat_id:
         return False, "Missing bot_token or chat_id"
     reply_to_message_id: str = str(telegram_ctx.get("reply_to_message_id") or "")
-    text = _truncate(report, _MESSAGE_LIMIT)
+    text = truncate(report, _MESSAGE_LIMIT, suffix="…")
     post_success, error, _ = post_telegram_message(
         chat_id, text, bot_token, reply_to_message_id=reply_to_message_id
     )
