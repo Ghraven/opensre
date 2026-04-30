@@ -35,15 +35,18 @@ from app.integrations.postgresql import build_postgresql_config, validate_postgr
 from app.integrations.rabbitmq import build_rabbitmq_config, validate_rabbitmq_config
 from app.integrations.sentry import build_sentry_config, validate_sentry_config
 from app.services.alertmanager import AlertmanagerClient, AlertmanagerConfig
+from app.services.argocd import ArgoCDClient, ArgoCDConfig
 from app.services.coralogix import CoralogixClient
 from app.services.datadog.client import DatadogClient, DatadogConfig
 from app.services.honeycomb import HoneycombClient
 from app.services.opsgenie import OpsGenieClient, OpsGenieConfig
+from app.services.splunk import SplunkClient, SplunkConfig
 from app.services.tracer_client.client import TracerClient
 from app.services.vercel.client import VercelClient, VercelConfig
 
 SUPPORTED_VERIFY_SERVICES = (
     "alertmanager",
+    "argocd",
     "grafana",
     "datadog",
     "honeycomb",
@@ -74,6 +77,7 @@ SUPPORTED_VERIFY_SERVICES = (
     "azure",
     "openobserve",
     "opensearch",
+    "splunk",
 )
 CORE_VERIFY_SERVICES = frozenset({"grafana", "datadog", "honeycomb", "coralogix", "aws"})
 _SUPPORTED_GRAFANA_TYPES = ("loki", "tempo", "prometheus")
@@ -578,6 +582,53 @@ def _verify_alertmanager(source: str, config: dict[str, Any]) -> dict[str, str]:
     )
 
 
+def _verify_argocd(source: str, config: dict[str, Any]) -> dict[str, str]:
+    base_url = str(config.get("base_url", "")).strip()
+    bearer_token = str(config.get("bearer_token", "")).strip()
+    username = str(config.get("username", "")).strip()
+    password = str(config.get("password", "")).strip()
+    if not base_url:
+        return _result("argocd", source, "missing", "Missing base_url.")
+    if not (bearer_token or (username and password)):
+        return _result(
+            "argocd",
+            source,
+            "missing",
+            "Missing bearer token or username/password credentials.",
+        )
+
+    try:
+        argocd_config = ArgoCDConfig.model_validate(
+            {
+                "base_url": base_url,
+                "bearer_token": bearer_token,
+                "username": username,
+                "password": password,
+                "project": config.get("project", ""),
+                "app_namespace": config.get("app_namespace", ""),
+                "verify_ssl": config.get("verify_ssl", True),
+            }
+        )
+    except Exception as err:
+        return _result("argocd", source, "missing", str(err))
+
+    with ArgoCDClient(argocd_config) as client:
+        projects = [argocd_config.project] if argocd_config.project else None
+        result = client.list_applications(projects=projects)
+
+    if not result.get("success"):
+        return _result(
+            "argocd",
+            source,
+            "failed",
+            f"Application list failed: {result.get('error', 'unknown error')}",
+        )
+
+    total = int(result.get("total", 0) or 0)
+    suffix = "application" if total == 1 else "applications"
+    return _result("argocd", source, "passed", f"Connected to Argo CD and listed {total} {suffix}.")
+
+
 def _verify_opsgenie(source: str, config: dict[str, Any]) -> dict[str, str]:
     try:
         opsgenie_config = OpsGenieConfig.model_validate(
@@ -803,6 +854,37 @@ def _verify_opensearch(source: str, config: dict[str, Any]) -> dict[str, str]:
     return _result("opensearch", source, "passed", f"OpenSearch endpoint configured: {url}.")
 
 
+def _verify_splunk(source: str, config: dict[str, Any]) -> dict[str, str]:
+    """Verify Splunk connectivity by calling /services/server/info."""
+    base_url = config.get("base_url", "")
+    token = config.get("token", "")
+    index = config.get("index", "main")
+    verify_ssl = config.get("verify_ssl", True)
+    ca_bundle = config.get("ca_bundle", "")
+
+    if not base_url or not token:
+        return _result("splunk", source, "missing", "Missing base_url or token.")
+
+    client = SplunkClient(
+        SplunkConfig(
+            base_url=base_url,
+            token=token,
+            index=index,
+            verify_ssl=verify_ssl,
+            ca_bundle=ca_bundle,
+        )
+    )
+    result = client.validate_access()
+    if not result.get("success"):
+        return _result(
+            "splunk",
+            source,
+            "failed",
+            f"Splunk check failed: {result.get('error', 'unknown error')}",
+        )
+    return _result("splunk", source, "passed", result.get("detail", "Connected."))
+
+
 def verify_integrations(
     service: str | None = None,
     *,
@@ -891,6 +973,8 @@ def verify_integrations(
             results.append(_verify_mysql(source, config))
         elif current_service == "alertmanager":
             results.append(_verify_alertmanager(source, config))
+        elif current_service == "argocd":
+            results.append(_verify_argocd(source, config))
         elif current_service == "snowflake":
             results.append(_verify_snowflake(source, config))
         elif current_service == "azure":
@@ -899,6 +983,8 @@ def verify_integrations(
             results.append(_verify_openobserve(source, config))
         elif current_service == "opensearch":
             results.append(_verify_opensearch(source, config))
+        elif current_service == "splunk":
+            results.append(_verify_splunk(source, config))
 
     return results
 

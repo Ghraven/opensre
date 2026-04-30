@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from app.cli.wizard.integration_health import IntegrationHealthResult
 from app.cli.wizard.probes import ProbeResult, probe_local_target, probe_remote_target
 from app.cli.wizard.prompts import select as select_prompt
 from app.cli.wizard.store import get_store_path, load_local_config, save_local_config
+from app.integrations.llm_cli.binary_resolver import diagnose_binary_path
 from app.integrations.store import get_integration, remove_integration, upsert_integration
 from app.llm_credentials import has_llm_api_key, save_llm_api_key
 
@@ -161,6 +163,12 @@ def validate_discord_bot(**kwargs):
 
 def validate_openclaw_integration(**kwargs):
     from app.cli.wizard.integration_health import validate_openclaw_integration as _validate
+
+    return _validate(**kwargs)
+
+
+def validate_splunk_integration(**kwargs):
+    from app.cli.wizard.integration_health import validate_splunk_integration as _validate
 
     return _validate(**kwargs)
 
@@ -1370,6 +1378,68 @@ def _configure_discord() -> tuple[str, str]:
         _console.print("[dim]Try again or press Ctrl+C to cancel.[/]")
 
 
+def _configure_splunk() -> tuple[str, str]:
+    _, credentials = _integration_defaults("splunk")
+    while True:
+        base_url = _prompt_value(
+            "Splunk REST API base URL (e.g. https://splunk.corp.com:8089)",
+            default=_string_value(credentials.get("base_url")),
+        )
+        token = _prompt_value(
+            "Splunk API bearer token",
+            default=_string_value(credentials.get("token")),
+            secret=True,
+        )
+        index = _prompt_value(
+            "Default Splunk index to search",
+            default=_string_value(credentials.get("index"), "main"),
+        )
+        verify_ssl = _confirm(
+            "Verify SSL certificate?",
+            default=bool(credentials.get("verify_ssl", True)),
+        )
+        ca_bundle = ""
+        if verify_ssl:
+            ca_bundle = _prompt_value(
+                "Path to CA bundle for SSL verification (leave empty to use system defaults)",
+                default=_string_value(credentials.get("ca_bundle")),
+                allow_empty=True,
+            )
+        with _console.status("Validating Splunk integration...", spinner="dots"):
+            result = validate_splunk_integration(
+                base_url=base_url,
+                token=token,
+                index=index,
+                verify_ssl=verify_ssl,
+                ca_bundle=ca_bundle,
+            )
+        _render_integration_result("Splunk", result)
+        if result.ok:
+            upsert_integration(
+                "splunk",
+                {
+                    "credentials": {
+                        "base_url": base_url,
+                        "token": token,
+                        "index": index,
+                        "verify_ssl": verify_ssl,
+                        "ca_bundle": ca_bundle,
+                    }
+                },
+            )
+            env_values: dict[str, str] = {
+                "SPLUNK_URL": base_url,
+                "SPLUNK_INDEX": index,
+                "SPLUNK_VERIFY_SSL": "true" if verify_ssl else "false",
+                # Do NOT write SPLUNK_TOKEN to .env — it goes to the credential store only
+            }
+            if ca_bundle:
+                env_values["SPLUNK_CA_BUNDLE"] = ca_bundle
+            env_path = sync_env_values(env_values)
+            return "Splunk", str(env_path)
+        _console.print("[dim]Try again or press Ctrl+C to cancel.[/]")
+
+
 def _configure_selected_integrations() -> tuple[list[str], str | None]:
     configured: list[str] = []
     last_env_path: str | None = None
@@ -1447,6 +1517,7 @@ def _configure_selected_integrations() -> tuple[list[str], str | None]:
             label="OpenClaw",
             hint="Connect OpenSRE to OpenClaw so your AI coding assistant can trigger investigations",
         ),
+        Choice(value="splunk", label="Splunk", hint="Query logs from Splunk"),
         Choice(
             value="skip",
             label="Skip for now",
@@ -1481,6 +1552,7 @@ def _configure_selected_integrations() -> tuple[list[str], str | None]:
         "opsgenie": _configure_opsgenie,
         "notion": _configure_notion,
         "openclaw": _configure_openclaw,
+        "splunk": _configure_splunk,
     }
     _SERVICE_LABELS = {
         "grafana_local": "grafana local",
@@ -1545,6 +1617,16 @@ def _render_next_steps() -> None:
     _console.print(
         "[dim]opensre investigate -i tests/e2e/kubernetes/fixtures/datadog_k8s_alert.json[/]"
     )
+
+
+def _credential_line_for_saved_summary(provider: ProviderOption) -> str:
+    """One-line credential description for the post-wizard saved summary."""
+    if provider.credential_kind != "cli":
+        return "system keychain"
+    if provider.adapter_factory is None:
+        return f"{provider.label} (CLI)"
+    cli_adapter = provider.adapter_factory()
+    return f"{provider.label} ({cli_adapter.auth_hint})"
 
 
 def _run_cli_llm_onboarding(provider: ProviderOption) -> Literal["ok", "abort", "repick"]:
@@ -1614,7 +1696,12 @@ def _run_cli_llm_onboarding(provider: ProviderOption) -> Literal["ok", "abort", 
             return "repick"
         if action == "path":
             path = _prompt_value(f"Full path to {name} binary")
+            reason = diagnose_binary_path(path)
+            if reason:
+                _console.print(f"[yellow]{reason} Try again.[/]")
+                continue
             sync_env_values({env_key: path})
+            os.environ[env_key] = path
             continue
         _console.print(f"[dim]Hint: {install_hint}[/]")
     _console.print("[yellow]Too many retry attempts. Aborting setup.[/]")
@@ -1781,11 +1868,7 @@ def run_wizard(_argv: list[str] | None = None) -> int:
         saved_path=str(saved_path),
         env_path=summary_env_path,
         configured_integrations=configured_integrations,
-        credential_line=(
-            "OpenAI Codex CLI (`codex login`)"
-            if provider.credential_kind == "cli"
-            else "system keychain"
-        ),
+        credential_line=_credential_line_for_saved_summary(provider),
     )
     demo_response = build_demo_action_response()
     _render_demo_response(demo_response)
