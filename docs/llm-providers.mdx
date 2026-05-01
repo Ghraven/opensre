@@ -1,0 +1,193 @@
+---
+title: "LLM providers"
+description: "Configure the language model OpenSRE uses to power investigation, chat, and CLI assistance"
+---
+
+OpenSRE supports eight LLM providers. Set `LLM_PROVIDER` to the provider name and supply the matching API key. All keys are stored securely in your system keychain or read directly from environment variables.
+
+## Quick start
+
+```bash
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+opensre investigate -i alert.json
+```
+
+## Supported providers
+
+### Anthropic (default)
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `anthropic` |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key from [console.anthropic.com](https://console.anthropic.com/) |
+| `ANTHROPIC_REASONING_MODEL` | Override the reasoning model (default: `claude-sonnet-4-6`) |
+| `ANTHROPIC_TOOLCALL_MODEL` | Override the tool-call model (default: `claude-haiku-4-5-20251001`) |
+
+```bash
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+---
+
+### OpenAI
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `openai` |
+| `OPENAI_API_KEY` | Your OpenAI API key from [platform.openai.com](https://platform.openai.com/) |
+| `OPENAI_REASONING_MODEL` | Override the reasoning model |
+| `OPENAI_TOOLCALL_MODEL` | Override the tool-call model |
+
+```bash
+export LLM_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+```
+
+---
+
+### Amazon Bedrock
+
+Bedrock uses your AWS credentials — no separate API key is needed. Make sure your IAM role or user has `bedrock:InvokeModel` permission.
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `bedrock` |
+| `AWS_ACCESS_KEY_ID` | AWS access key (or use an instance role / SSO) |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
+| `BEDROCK_REASONING_MODEL` | Override the reasoning model (default: `us.anthropic.claude-sonnet-4-6`) |
+| `BEDROCK_TOOLCALL_MODEL` | Override the tool-call model (default: `us.anthropic.claude-haiku-4-5-20251001-v1:0`) |
+
+```bash
+export LLM_PROVIDER=bedrock
+export AWS_DEFAULT_REGION=us-east-1
+```
+
+---
+
+### OpenRouter
+
+[OpenRouter](https://openrouter.ai/) gives you access to dozens of models through a single API.
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `openrouter` |
+| `OPENROUTER_API_KEY` | Your OpenRouter API key |
+| `OPENROUTER_REASONING_MODEL` | Override the reasoning model (default: `openrouter/auto`) |
+| `OPENROUTER_TOOLCALL_MODEL` | Override the tool-call model (default: `openrouter/auto`) |
+
+```bash
+export LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=sk-or-...
+```
+
+---
+
+### Google Gemini
+
+Uses Google's OpenAI-compatible endpoint.
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `gemini` |
+| `GEMINI_API_KEY` | Your Gemini API key from [aistudio.google.com](https://aistudio.google.com/) |
+| `GEMINI_REASONING_MODEL` | Override the reasoning model |
+| `GEMINI_TOOLCALL_MODEL` | Override the tool-call model |
+
+```bash
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=AIza...
+```
+
+---
+
+### NVIDIA NIM
+
+Access NVIDIA-hosted models via the NVIDIA API Catalog.
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `nvidia` |
+| `NVIDIA_API_KEY` | Your NVIDIA API key from [build.nvidia.com](https://build.nvidia.com/) |
+| `NVIDIA_REASONING_MODEL` | Override the reasoning model (default: `meta/llama-3.1-405b-instruct`) |
+| `NVIDIA_TOOLCALL_MODEL` | Override the tool-call model (default: `meta/llama-3.1-8b-instruct`) |
+
+```bash
+export LLM_PROVIDER=nvidia
+export NVIDIA_API_KEY=nvapi-...
+```
+
+---
+
+### MiniMax
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `minimax` |
+| `MINIMAX_API_KEY` | Your MiniMax API key |
+| `MINIMAX_REASONING_MODEL` | Override the reasoning model (default: `MiniMax-M2.7`) |
+| `MINIMAX_TOOLCALL_MODEL` | Override the tool-call model (default: `MiniMax-M2.7-highspeed`) |
+
+```bash
+export LLM_PROVIDER=minimax
+export MINIMAX_API_KEY=...
+```
+
+---
+
+### Ollama (local)
+
+Run models locally with no API key required. Install [Ollama](https://ollama.com/) and pull a model first.
+
+| Environment variable | Description |
+|---|---|
+| `LLM_PROVIDER` | Set to `ollama` |
+| `OLLAMA_HOST` | Ollama server URL (default: `http://localhost:11434`) |
+| `OLLAMA_MODEL` | Model to use (default: `llama3.2`) |
+
+```bash
+ollama pull llama3.2
+export LLM_PROVIDER=ollama
+opensre investigate -i alert.json
+```
+
+---
+
+## CLI-backed LLM assistants
+
+In addition to the API providers above, OpenSRE can delegate to installed LLM CLI tools for the interactive shell assistant. Set `LLM_PROVIDER` to the CLI tool name and ensure the binary is on your `PATH`.
+
+| `LLM_PROVIDER` value | CLI tool | Model override env var |
+|---|---|---|
+| `claude-code` | [Claude Code](https://github.com/anthropics/claude-code) | `CLAUDE_CODE_MODEL` |
+| `codex` | [OpenAI Codex CLI](https://github.com/openai/codex) | `CODEX_MODEL` |
+
+```bash
+export LLM_PROVIDER=claude-code
+opensre shell
+```
+
+## Secure key storage
+
+OpenSRE reads API keys from the environment first. If a key is not set, it falls back to your system keychain (macOS Keychain, GNOME Keyring, Windows Credential Manager). Use the following to save or remove a key:
+
+```bash
+# Save a key to the keychain
+opensre config set-key ANTHROPIC_API_KEY sk-ant-...
+
+# Remove a key from the keychain
+opensre config delete-key ANTHROPIC_API_KEY
+
+# Disable keychain lookup (use env vars only)
+export OPENSRE_DISABLE_KEYRING=true
+```
+
+## Verify your configuration
+
+```bash
+opensre doctor
+```
+
+The `doctor` command checks that your selected provider is reachable and the API key is valid before you run an investigation.
