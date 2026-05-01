@@ -1,0 +1,96 @@
+---
+title: "Welcome to OpenSRE"
+description: "You're signed up. Here's how to get your first investigation running in minutes."
+---
+
+You've created an OpenSRE account. Follow these steps to connect your stack and run your first automated investigation.
+
+## Step 1 — Install the CLI
+
+<Tabs>
+  <Tab title="macOS / Linux">
+    ```bash
+    brew install Tracer-Cloud/opensre/opensre
+    ```
+
+    Or with the install script:
+
+    ```bash
+    curl -fsSL https://install.opensre.com | bash
+    ```
+  </Tab>
+  <Tab title="Windows">
+    ```powershell
+    irm https://install.opensre.com | iex
+    ```
+  </Tab>
+  <Tab title="pip">
+    ```bash
+    pip install opensre
+    ```
+  </Tab>
+</Tabs>
+
+## Step 2 — Connect your LLM provider
+
+OpenSRE needs an LLM to reason over evidence. Set your provider and API key:
+
+```bash
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Other supported providers: OpenAI, Amazon Bedrock, Gemini, OpenRouter, NVIDIA NIM, MiniMax, Ollama. See [LLM providers](/llm-providers) for the full list.
+
+## Step 3 — Run the onboarding wizard
+
+The wizard connects your observability tools (Grafana, Datadog, Sentry, etc.) in one pass:
+
+```bash
+opensre onboard
+```
+
+Or configure a single integration directly:
+
+```bash
+opensre integrations setup
+```
+
+## Step 4 — Run your first investigation
+
+Point OpenSRE at a real alert JSON file, or use a built-in fixture to test the pipeline:
+
+```bash
+# With a fixture
+opensre investigate -i tests/fixtures/datadog_test_alert.json
+
+# With a real alert
+opensre investigate -i /path/to/your/alert.json
+```
+
+## Step 5 — Verify everything works
+
+```bash
+opensre doctor
+```
+
+This checks that your LLM provider is reachable, your integrations are configured, and the investigation pipeline is healthy.
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Connect integrations" icon="plug" href="/integrations-overview">
+    Wire OpenSRE into your full observability stack.
+  </Card>
+  <Card title="LLM providers" icon="brain" href="/llm-providers">
+    Switch providers or run fully local with Ollama.
+  </Card>
+  <Card title="Investigation overview" icon="magnifying-glass" href="/investigation-overview">
+    Understand how OpenSRE collects evidence and produces RCA.
+  </Card>
+  <Card title="FAQ" icon="circle-question" href="/faq">
+    Answers to common setup and usage questions.
+  </Card>
+</CardGroup>
