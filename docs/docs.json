@@ -38,16 +38,24 @@
           {
             "group": "First steps",
             "pages": [
+              "onboarding",
               "quickstart",
+              "deployment",
               "faq"
             ]
           }
         ]
       },
       {
-        "tab": "Install",
+        "tab": "Installation",
         "icon": "download",
         "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "install"
+            ]
+          },
           {
             "group": "Local",
             "pages": [
@@ -309,5 +317,35 @@
   "logo": {
     "light": "/images/opensre-logo-black.svg",
     "dark": "/images/opensre-logo-black.svg"
-  }
+  },
+  "redirects": [
+    {
+      "source": "/onboarding",
+      "destination": "/onboarding"
+    },
+    {
+      "source": "/getting-started",
+      "destination": "/onboarding"
+    },
+    {
+      "source": "/welcome",
+      "destination": "/onboarding"
+    },
+    {
+      "source": "/start",
+      "destination": "/onboarding"
+    },
+    {
+      "source": "/docs/onboarding",
+      "destination": "/onboarding"
+    },
+    {
+      "source": "/docs/getting-started",
+      "destination": "/onboarding"
+    },
+    {
+      "source": "/docs/welcome",
+      "destination": "/onboarding"
+    }
+  ]
 }
