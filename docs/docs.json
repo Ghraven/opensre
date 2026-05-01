@@ -29,11 +29,18 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": ["index", "showcase", "features"]
+            "pages": [
+              "index",
+              "showcase",
+              "features"
+            ]
           },
           {
             "group": "First steps",
-            "pages": ["quickstart", "faq"]
+            "pages": [
+              "quickstart",
+              "faq"
+            ]
           }
         ]
       },
@@ -43,11 +50,15 @@
         "groups": [
           {
             "group": "Local",
-            "pages": ["install-local"]
+            "pages": [
+              "install-local"
+            ]
           },
           {
             "group": "Enterprise",
-            "pages": ["install-enterprise"]
+            "pages": [
+              "install-enterprise"
+            ]
           }
         ]
       },
@@ -117,7 +128,10 @@
         "groups": [
           {
             "group": "Getting started",
-            "pages": ["introduction-monitoring", "quickstart-monitoring"]
+            "pages": [
+              "introduction-monitoring",
+              "quickstart-monitoring"
+            ]
           },
           {
             "group": "Use cases",
@@ -231,7 +245,9 @@
         "groups": [
           {
             "group": "Daily updates",
-            "pages": ["daily-updates/overview"]
+            "pages": [
+              "daily-updates/overview"
+            ]
           }
         ]
       }
