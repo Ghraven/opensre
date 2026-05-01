@@ -24,6 +24,7 @@ from app.integrations.catalog import (
 from app.integrations.catalog import (
     merge_local_integrations as _merge_local_integrations,
 )
+from app.integrations.validation import missing_required_integration
 from app.output import get_tracker
 from app.state import InvestigationState
 
@@ -48,6 +49,25 @@ def _strip_bearer(token: str) -> str:
     if token.lower().startswith("bearer "):
         return token.split(None, 1)[1].strip()
     return token
+
+
+def _warn_missing_integration(
+    state: InvestigationState,
+    resolved: dict[str, Any],
+    tracker: Any,
+) -> None:
+    """Log a warning and update the tracker when a required integration is absent."""
+    alert_source = str(state.get("alert_source", "")).strip()
+    if not alert_source:
+        return
+    error = missing_required_integration(alert_source, resolved)
+    if error:
+        logger.warning(error)
+        tracker.complete(
+            "resolve_integrations",
+            fields_updated=["resolved_integrations"],
+            message=error,
+        )
 
 
 @traceable(name="node_resolve_integrations")
@@ -105,7 +125,7 @@ def node_resolve_integrations(
             if not org_id:
                 org_id = _decode_org_id_from_token(env_token)
             if not org_id:
-                return _resolve_from_local_sources(tracker)
+                return _resolve_from_local_sources(tracker, state)
             try:
                 from app.services.tracer_client import get_tracer_client_for_org
 
@@ -118,9 +138,9 @@ def node_resolve_integrations(
                     org_id,
                     exc_info=True,
                 )
-                return _resolve_from_local_sources(tracker)
-            return _resolve_remote_with_local_fallback(all_integrations, tracker)
-        return _resolve_from_local_sources(tracker)
+                return _resolve_from_local_sources(tracker, state)
+            return _resolve_remote_with_local_fallback(all_integrations, tracker, state)
+        return _resolve_from_local_sources(tracker, state)
 
     resolved = _classify_integrations(all_integrations)
     services = [service for service in resolved if service != "_all"]
@@ -133,10 +153,12 @@ def node_resolve_integrations(
         else "No active integrations found",
     )
 
+    _warn_missing_integration(state, resolved, tracker)
+
     return {"resolved_integrations": resolved}
 
 
-def _resolve_from_local_sources(tracker: Any) -> dict:
+def _resolve_from_local_sources(tracker: Any, state: InvestigationState | None = None) -> dict:
     from app.integrations.store import STORE_PATH, load_integrations
 
     store_integrations = load_integrations()
@@ -169,12 +191,15 @@ def _resolve_from_local_sources(tracker: Any) -> dict:
             else f"Resolved local integrations: {services}"
         ),
     )
+    if state is not None:
+        _warn_missing_integration(state, resolved, tracker)
     return {"resolved_integrations": resolved}
 
 
 def _resolve_remote_with_local_fallback(
     remote_integrations: list[dict[str, Any]],
     tracker: Any,
+    state: InvestigationState | None = None,
 ) -> dict:
     from app.integrations.store import load_integrations
 
@@ -203,4 +228,6 @@ def _resolve_remote_with_local_fallback(
             else "No active integrations found"
         ),
     )
+    if state is not None:
+        _warn_missing_integration(state, resolved, tracker)
     return {"resolved_integrations": resolved}
