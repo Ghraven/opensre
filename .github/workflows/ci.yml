@@ -297,16 +297,24 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system -e ".[dev]"
 
+      - name: Skip credentialed E2E without secrets
+        if: env.AWS_ACCESS_KEY_ID == '' || env.AWS_SECRET_ACCESS_KEY == '' || env.JWT_TOKEN == ''
+        run: |
+          echo "Skipping credentialed E2E because AWS/JWT secrets are not configured for this repository."
+
       - name: Install tracer CLI
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.JWT_TOKEN != ''
         run: |
           curl -sSL https://install.tracer.cloud | CLI_BRANCH=dev sh -s user_36fbN6K6FwEgJFHsQv1pUByo8K6
 
       - name: Initialize tracer (optional)
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.JWT_TOKEN != ''
         run: |
           sudo tracer init --token ${{ secrets.JWT_TOKEN }}
         continue-on-error: true
         timeout-minutes: 2
 
       - name: Run test
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' && env.JWT_TOKEN != ''
         run: ${{ matrix.command }}
         timeout-minutes: 30
