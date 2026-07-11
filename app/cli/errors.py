@@ -16,6 +16,14 @@ import click
 class OpenSREError(click.ClickException):
     """A CLI error that renders with an optional suggestion and docs URL."""
 
+    @property
+    def exit_code(self) -> int:
+        return self._exit_code
+
+    @exit_code.setter
+    def exit_code(self, value: int) -> None:
+        self._exit_code = value
+
     def __init__(
         self,
         message: str,
