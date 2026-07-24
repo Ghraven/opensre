@@ -67,20 +67,23 @@ jobs:
           git add -A
           git commit -m "fix(security): auto-fix security warnings"
           git push --force-with-lease origin HEAD:security/auto-fix
-          gh pr view security/auto-fix >/dev/null 2>&1 || gh pr create \
-            --base main \
-            --head security/auto-fix \
-            --title "fix(security): automated security fixes" \
-            --body "## Automated Security Fixes
+          if ! gh pr view security/auto-fix >/dev/null 2>&1; then
+            gh pr create \
+              --base main \
+              --head security/auto-fix \
+              --title "fix(security): automated security fixes" \
+              --body "## Automated Security Fixes
 
-          This PR was created automatically by the **Security Auto-Fix** workflow.
+            This PR was created automatically by the **Security Auto-Fix** workflow.
 
-          ### What was done
-          - Ran \`ruff\` with security rules (\`S\`) and applied auto-fixes
-          - Ran \`bandit\` scan for additional findings
-          - Ran \`pip-audit\` for dependency vulnerabilities
+            ### What was done
+            - Ran \`ruff\` with security rules (\`S\`) and applied auto-fixes
+            - Ran \`bandit\` scan for additional findings
+            - Ran \`pip-audit\` for dependency vulnerabilities
 
-          ### Review checklist
-          - [ ] Review all changes — auto-fixes may alter behavior
-          - [ ] Verify tests pass
-          - [ ] Check that no false-positive fixes were applied"
+            ### Review checklist
+            - [ ] Review all changes — auto-fixes may alter behavior
+            - [ ] Verify tests pass
+            - [ ] Check that no false-positive fixes were applied" || \
+              echo "::warning::Security auto-fix branch was pushed, but this token cannot create pull requests."
+          fi
