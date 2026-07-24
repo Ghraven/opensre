@@ -56,30 +56,31 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Orgs can disallow the default token from opening PRs; add secret SECURITY_AUTOFIX_PAT
-      # (fine-grained PAT: contents + pull requests on this repo) if create-pull-request fails with 403.
       - name: Create Pull Request
         if: steps.changes.outputs.has_changes == 'true'
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ secrets.SECURITY_AUTOFIX_PAT || secrets.GITHUB_TOKEN }}
-          commit-message: "fix(security): auto-fix security warnings"
-          branch: security/auto-fix
-          base: main
-          delete-branch: true
-          title: "fix(security): automated security fixes"
-          body: |
-            ## Automated Security Fixes
+        env:
+          GH_TOKEN: ${{ secrets.SECURITY_AUTOFIX_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B security/auto-fix
+          git add -A
+          git commit -m "fix(security): auto-fix security warnings"
+          git push --force-with-lease origin HEAD:security/auto-fix
+          gh pr view security/auto-fix >/dev/null 2>&1 || gh pr create \
+            --base main \
+            --head security/auto-fix \
+            --title "fix(security): automated security fixes" \
+            --body "## Automated Security Fixes
 
-            This PR was created automatically by the **Security Auto-Fix** workflow.
+          This PR was created automatically by the **Security Auto-Fix** workflow.
 
-            ### What was done
-            - Ran `ruff` with security rules (`S`) and applied auto-fixes
-            - Ran `bandit` scan for additional findings
-            - Ran `pip-audit` for dependency vulnerabilities
+          ### What was done
+          - Ran \`ruff\` with security rules (\`S\`) and applied auto-fixes
+          - Ran \`bandit\` scan for additional findings
+          - Ran \`pip-audit\` for dependency vulnerabilities
 
-            ### Review checklist
-            - [ ] Review all changes — auto-fixes may alter behavior
-            - [ ] Verify tests pass
-            - [ ] Check that no false-positive fixes were applied
-          labels: security,automated
+          ### Review checklist
+          - [ ] Review all changes — auto-fixes may alter behavior
+          - [ ] Verify tests pass
+          - [ ] Check that no false-positive fixes were applied"
