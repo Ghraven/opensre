@@ -21,7 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Set up Python
@@ -38,7 +37,7 @@ jobs:
           ruff format app/ tests/ || true
 
       - name: Run bandit scan (informational)
-        run: bandit -r app/ -f json -o bandit-report.json --severity-level medium || true
+        run: bandit -r app/ -f json -o "$RUNNER_TEMP/bandit-report.json" --severity-level medium || true
 
       - name: Run pip-audit
         run: pip-audit --fix -r <(pip freeze) 2>/dev/null || true
@@ -61,6 +60,7 @@ jobs:
           token: ${{ secrets.SECURITY_AUTOFIX_PAT || secrets.GITHUB_TOKEN }}
           commit-message: "fix(security): auto-fix security warnings"
           branch: security/auto-fix
+          base: main
           delete-branch: true
           title: "fix(security): automated security fixes"
           body: |
